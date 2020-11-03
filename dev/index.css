@@ -1,0 +1,14 @@
+.world {
+  display: grid;
+  grid-template-columns: repeat(32, 1fr);
+}
+
+.cell-true {
+  background: #000000;
+  height: 50px;
+}
+
+.cell-false {
+  background: #FFFFFF;
+  height: 50px;
+}

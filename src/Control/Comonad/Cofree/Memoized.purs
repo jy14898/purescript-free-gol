@@ -5,6 +5,8 @@ module Control.Comonad.Cofree.Memoized
   , buildCofree
   , explore
   , forceCofree
+  , reassociate
+  , collect
   ) where
 
 import Prelude
@@ -67,6 +69,38 @@ explore pair m w = case runState (runFreeM step m) w of
   step :: f (Free f (a -> b)) -> State (Cofree g a) (Free f (a -> b))
   step ff = state \cof -> pair (map Tuple ff) (tail cof)
 
+reassociate ::
+  forall f g a b.
+  Functor f =>
+  Functor g =>
+  (forall x y. f (x -> y) -> g x -> y) ->
+  Free f a ->
+  Cofree g b ->
+  Tuple a (Cofree g b)
+reassociate pair m w = runState (runFreeM step m) w
+  where
+  step :: f (Free f a) -> State (Cofree g b) (Free f a)
+  step ff = state \cof -> pair (map Tuple ff) (tail cof)
+
+-- | Given a walk (with jumps) through the Cofree structure, collect the heads
+-- | I have no idea how it works for anything other than what I'm using it for
+collect ::
+  forall f g a b.
+  Functor f =>
+  Functor g =>
+  (forall x y. f (x -> y) -> g x -> y) ->
+  Free (Free f) a ->
+  Cofree g b ->
+  Array b
+collect pair m w = case runState (runFreeM step m) { s1: w, s2: [] } of
+  Tuple _ { s2 } -> s2
+  where
+  step :: Free f (Free (Free f) a) -> State ({ s1 :: Cofree g b, s2 :: Array b }) (Free (Free f) a)
+  step ff = state \{ s1, s2 } -> (\y -> { s1: y, s2: s2 <> [ extract y ] }) <$> reassociate pair ff s1
+
+  --step :: f (Free f a) -> State ({ s1 :: Cofree g b, s2 :: Array b }) (Free f a)
+  --step ff = state \{ s1, s2 } -> pair (map (\x y -> Tuple x { s1: y, s2: s2 <> [ extract y ] }) ff) (tail s1)
+
 instance functorCofree :: Functor f => Functor (Cofree f) where
   map f = Cofree <<< go
     where
@@ -99,4 +133,15 @@ foreign import refOnce :: forall a. (a -> Array a) -> a -> Unit
 -- | Note that the constraint here is causing it to not have a global WeakSet
 -- | which is fine
 forceCofree :: forall a f. Foldable f => Cofree f a -> Unit
-forceCofree = refOnce (\v -> fromFoldable $ C.tail $ v) <<< unCofree
+forceCofree = refOnce (\v -> fromFoldable $ C.tail v) <<< unCofree
+
+--foreign import hamiltonianPath' :: forall a b f . (forall x y. (x -> y) -> f x -> f y) -> (a -> Array { v :: a, c :: f b } ) -> a -> f b
+
+--hamiltonianPath :: forall f g a. 
+--    Foldable g =>
+--    Functor f =>
+--    Functor g =>
+--    (forall x. g x -> g (Tuple x (f Unit))) ->
+--    Cofree g a ->
+--    Free f Unit
+--hamiltonianPath f = hamiltonianPath' map (\v -> let v' = f (C.tail v) in fromFoldable ((\(Tuple x y) -> { v: x, c: liftF y }) <$> v')) <<< unCofree
