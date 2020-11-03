@@ -1,19 +1,18 @@
 module Data.Cell where
 
 import Prelude
-import Control.Comonad.Cofree.Memoized (Cofree, buildCofree, explore, head, reassociate, modify) as M
---import Effect.Aff (Fiber, launchAff)
---import Effect (Effect)
---import Effect.Class.Console (logShow)
+import Control.Comonad.Cofree.Memoized (Cofree, buildCofree, explore, head, modify') as M
 import Control.Monad.Free (Free, liftF, runFree, hoistFree)
 import Control.Monad.Rec.Class (tailRecM, Step(..))
 import Control.Comonad (extend)
-import Data.Tuple (snd)
 import Data.Tuple.Nested ((/\))
 import Data.Variant (SProxy(..), Variant, inj, match)
 import Data.Newtype (class Newtype, unwrap)
 import Data.Foldable (class Foldable, foldl, foldMapDefaultR)
 
+-- | The two functors, Cell and CoCell, defined in this file are used for 
+-- | representing the game grid as a Cofree monad and for representing walks
+-- | through the grid as a Free monad
 type Directions a
   = ( north :: a, south :: a, east :: a, west :: a )
 
@@ -48,7 +47,14 @@ type JumpPath a
   = Free (Free CoCell) a
 
 showDirectionVariant :: forall a. Variant (Directions a) -> String
-showDirectionVariant v = match { north: const "N", east: const "E", south: const "S", west: const "W" } v
+showDirectionVariant v =
+  match
+    { north: const "N"
+    , east: const "E"
+    , south: const "S"
+    , west: const "W"
+    }
+    v
 
 showPath :: forall a. Show a => Path a -> String
 showPath p = runFree go $ show <$> p
@@ -98,7 +104,7 @@ explore' :: forall a b. Path (a -> b) -> World a -> b
 explore' = M.explore combine
 
 modifyTest :: forall a. Int -> Int -> (a -> a) -> World a -> World a
-modifyTest x y f world = M.modify combine (const f <$> move' x y) world
+modifyTest x y f world = M.modify' combine (const f <$> move' x y) world
 
 -- I can't believe this function doesn't already exist as part of Variant
 -- https://discourse.purescript.org/t/using-a-variant-to-update-a-single-label-in-a-record/379
@@ -159,26 +165,33 @@ emptyWorld size =
       , west: (x + 1) /\ y
       }
 
----- this will run the function 2^n number of times
---myIterate :: forall a. Int -> (a -> a) -> a -> a
---myIterate 0 f = f
---myIterate n f = myIterate (n - 1) (f <<< f)
---
----- applies it 1024 times on the stack (without forcing in between)
---thousand :: World Boolean -> World Boolean
---thousand x = y
---  where
---  --y = myIterate 10 step x
---  y = myIterate 0 step x
---
---  _ = M.forceCofree y
--- | Produces a path for a grid that covers all cells
+foreign import safeIndex :: forall a. Array a -> Int -> a
+
+initializeWorld :: forall a. Array a -> Int -> World a
+initializeWorld xs size =
+  M.buildCofree
+    (\(x /\ y) -> safeIndex xs (x + y * size) /\ (wrap <$> next x y))
+    (0 /\ 0)
+  where
+  wrap (x /\ y) = x `mod` size /\ y `mod` size
+
+  next x y =
+    Cell
+      { north: x /\ (y + 1)
+      , south: x /\ (y - 1)
+      , east: (x - 1) /\ y
+      , west: (x + 1) /\ y
+      }
+
 gridHamiltonianPath :: Int -> Int -> JumpPath Unit
 gridHamiltonianPath width height = tailRecM (\i -> go i <* easts) (height - 1)
   where
-  -- This shouldn't be north...
+  -- North and south are flipped it seems, doesn't matter
   diagonal :: JumpPath Unit
   diagonal = liftF $ move.north <* move.east
+
+  lineReset :: JumpPath Unit
+  lineReset = liftF $ move' ((-width) + 1) 1
 
   read :: JumpPath Unit
   read = liftF $ pure unit
@@ -190,4 +203,5 @@ gridHamiltonianPath width height = tailRecM (\i -> go i <* easts) (height - 1)
   go n
     | n == height - 1 = read $> Loop (n - 1)
 
-  go n = diagonal $> if n == 0 then Done unit else Loop (n - 1)
+  --go n = diagonal $> if n == 0 then Done unit else Loop (n - 1)
+  go n = lineReset $> if n == 0 then Done unit else Loop (n - 1)

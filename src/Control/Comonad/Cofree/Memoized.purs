@@ -8,6 +8,7 @@ module Control.Comonad.Cofree.Memoized
   , reassociate
   , collect
   , modify
+  , modify'
   ) where
 
 import Prelude
@@ -16,7 +17,7 @@ import Control.Monad.Free (Free, runFreeM)
 import Control.Comonad (class Extend, class Comonad, extract, extend)
 import Control.Monad.State (State, runState, state)
 import Data.Lazy (Lazy, force, defer)
-import Data.Tuple (Tuple(..), snd)
+import Data.Tuple (Tuple(..))
 import Data.Function.Memoize (memoize, class Tabulate)
 import Data.Foldable (class Foldable)
 import Data.Array (fromFoldable)
@@ -101,6 +102,15 @@ collect pair m w = case runState (runFreeM step m) { s1: w, s2: [] } of
 foreign import refEq :: forall a. a -> a -> Boolean
 
 modify ::
+  forall a g.
+  Functor g =>
+  (a -> a) ->
+  Cofree g a ->
+  Cofree g a ->
+  Cofree g a
+modify f target = extend (\c -> let v = head c in if refEq c target then f v else v)
+
+modify' ::
   forall a f g.
   Functor f =>
   Functor g =>
@@ -108,28 +118,15 @@ modify ::
   Free f (a -> a) ->
   Cofree g a ->
   Cofree g a
-modify combine path world = world'
+modify' combine path world = modify f root world
   where
   Tuple f root = reassociate combine path world
 
-  world' = extend (\c -> let v = head c in if refEq c root then f v else v) world
+data Uh b f a = Uh b (f a)
 
--- more complicated as you need to recreate the rest of the thing
---data Uh b f a = Uh b (f a)
---
---uncollect ::
---  forall f g a b.
---  Functor f =>
---  Functor g =>
---  (forall x y. f (x -> y) -> g x -> y) ->
---  Free (Uh b (Free f)) a ->
---  Cofree g b ->
---  Cofree g b ->
---collect pair m w = case runState (runFreeM step m) { s1: w, s2: [] } of
---  Tuple _ { s2 } -> s2
---  where
---  step :: Free f (Free (Free f) a) -> State ({ s1 :: Cofree g b, s2 :: Array b }) (Free (Free f) a)
---  step ff = state \{ s1, s2 } -> (\y -> { s1: y, s2: s2 <> [ extract y ] }) <$> reassociate pair ff s1
+instance functorUh :: Functor f => Functor (Uh b f) where
+  map f (Uh b fa) = Uh b (f <$> fa)
+
 instance functorCofree :: Functor f => Functor (Cofree f) where
   map f = Cofree <<< go
     where
@@ -163,13 +160,3 @@ foreign import refOnce :: forall a. (a -> Array a) -> a -> Unit
 -- | which is fine
 forceCofree :: forall a f. Foldable f => Cofree f a -> Unit
 forceCofree = refOnce (\v -> fromFoldable $ C.tail v) <<< unCofree
-
---foreign import hamiltonianPath' :: forall a b f . (forall x y. (x -> y) -> f x -> f y) -> (a -> Array { v :: a, c :: f b } ) -> a -> f b
---hamiltonianPath :: forall f g a. 
---    Foldable g =>
---    Functor f =>
---    Functor g =>
---    (forall x. g x -> g (Tuple x (f Unit))) ->
---    Cofree g a ->
---    Free f Unit
---hamiltonianPath f = hamiltonianPath' map (\v -> let v' = f (C.tail v) in fromFoldable ((\(Tuple x y) -> { v: x, c: liftF y }) <$> v')) <<< unCofree

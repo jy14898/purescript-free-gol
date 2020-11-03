@@ -1,14 +1,49 @@
+.app {
+    margin: 0 auto;
+    width: 800px;
+    background: #58baea;
+}
+
+.app-controls {
+  padding: 5px;
+}
+
 .world {
+  width: 800px;
+  height: 800px;
   display: grid;
-  grid-template-columns: repeat(32, 1fr);
+  background: #eaeaea;
+}
+
+.cell-container {
+  display: grid;
+  align-items: center;
+  padding: 2px;
+}
+
+.cell-container:hover {
+  background: #7cc2d2;
+}
+
+.cell { 
+  border-radius: 5px;
+  margin: 5px auto;
+  background: #000000;
+}
+
+.cell-animated {
+  transition-property: width, height;
+  transition-duration: 0.1s;
+  transition-timing-function: ease-in;
+  transition-delay: 0s;
 }
 
 .cell-true {
-  background: #000000;
-  height: 50px;
+  width: 100%;
+  height: 100%;
 }
 
 .cell-false {
-  background: #FFFFFF;
-  height: 50px;
+  width: 0%;
+  height: 0%;
 }
