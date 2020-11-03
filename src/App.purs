@@ -73,6 +73,9 @@ handleAction = case _ of
         KET.keyup
         (HTMLDocument.toEventTarget document)
         (map (HandleKey sid) <<< KE.fromEvent)
+    let go n = randomBool
+    rands <- H.liftEffect $ tailRecM go 32*32
+
   Toggle x y -> H.modify_ \{ world } -> { world: modifyTest x y not world }
   Step ->
     H.modify_ \{ world } ->

@@ -1,7 +1,7 @@
 module Data.Cell where
 
 import Prelude
-import Control.Comonad.Cofree.Memoized (Cofree, buildCofree, explore, head, reassociate) as M
+import Control.Comonad.Cofree.Memoized (Cofree, buildCofree, explore, head, reassociate, modify) as M
 --import Effect.Aff (Fiber, launchAff)
 --import Effect (Effect)
 --import Effect.Class.Console (logShow)
@@ -97,15 +97,8 @@ combine (CoCell a k) b = match (unwrap $ (\v _ -> k v) <$> b) a
 explore' :: forall a b. Path (a -> b) -> World a -> b
 explore' = M.explore combine
 
-foreign import refEq :: forall a. a -> a -> Boolean
-
--- this is a very hacky solution
 modifyTest :: forall a. Int -> Int -> (a -> a) -> World a -> World a
-modifyTest x y f world = world'
-  where
-  root = snd $ M.reassociate combine (move' x y) world
-
-  world' = extend (\c -> let v = M.head c in if refEq c root then f v else v) world
+modifyTest x y f world = M.modify combine (const f <$> move' x y) world
 
 -- I can't believe this function doesn't already exist as part of Variant
 -- https://discourse.purescript.org/t/using-a-variant-to-update-a-single-label-in-a-record/379
