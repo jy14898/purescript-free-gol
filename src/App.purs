@@ -45,7 +45,7 @@ data Action
   | ToggleAutoStep
 
 initialWorld :: World Boolean
-initialWorld = emptyWorld 64
+initialWorld = emptyWorld 32
 
 component :: forall q i o m. MonadAff m => H.Component HH.HTML q i o m
 component =
@@ -152,8 +152,8 @@ handleAction = case _ of
       go { n, xs } = do
         x <- randomBool
         pure $ Loop { n: n - 1, xs: cons x xs }
-    rands <- H.liftEffect $ tailRecM go { n: 64 * 64, xs: [ false ] }
-    H.modify_ \st -> st { world = initializeWorld rands 64 }
+    rands <- H.liftEffect $ tailRecM go { n: 32 * 32, xs: [ false ] }
+    H.modify_ \st -> st { world = initializeWorld rands 32 }
     --sId <- H.subscribe runAutoStep
     --H.modify_ \st -> st { autoStep = Just sId }
     pure unit
