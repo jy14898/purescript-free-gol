@@ -18,6 +18,10 @@ import Data.Traversable (class Traversable, for)
 import Partial.Unsafe (unsafePartial)
 import Undefined (undefined)
 
+-- itd be nice if i could make a way of indexing such that if the cofree has the same region as the index
+-- then it's a guaranteed read. I could just make helper functions which guarantee index is always set to
+-- something from the arrays?
+
 foreign import data Cofree :: (Type -> Type) -> Type -> Type
 
 type CofreeInternal f a
@@ -111,6 +115,20 @@ instance comonadCofree :: Functor f => Comonad (Cofree f) where
   extract = head
 
 -- Didn't expect this to work first time
+--explore ::
+--  forall f g a b.
+--  Functor f =>
+--  Functor g =>
+--  (forall x y. f (x -> y) -> g x -> y) ->
+--  Free f (a -> b) ->
+--  Cofree g a ->
+--  b
+--explore pair m w = case runState (runFreeM step m) w of
+--  Tuple f cof -> f (extract cof)
+--  where
+--  step :: f (Free f (a -> b)) -> State (Cofree g a) (Free f (a -> b))
+--  step ff = state \cof -> pair (map Tuple ff) (tail cof)
+
 explore ::
   forall f g a b.
   Functor f =>
@@ -119,12 +137,15 @@ explore ::
   Free f (a -> b) ->
   Cofree g a ->
   b
-explore pair m w = case runState (runFreeM step m) w of
-  Tuple f cof -> f (extract cof)
+explore pair m w = case runState (runFreeM step m) initialIndex of
+  Tuple f index -> f (unsafePartial (fromJust (A.index xs index)))
   where
-  step :: f (Free f (a -> b)) -> State (Cofree g a) (Free f (a -> b))
-  step ff = state \cof -> pair (map Tuple ff) (tail cof)
+  { index: initialIndex, xs, ys } = unCofree w
 
+  step :: f (Free f (a -> b)) -> State Int (Free f (a -> b))
+  step ff = state \index -> pair (map Tuple ff) (unsafePartial (fromJust (A.index ys index)))
+-- Instead of storing cofree in the state, i close over the original and just carry an index
+-- 
 --explore pair m w = case runState (runFreeM step m) (unCofree w) of
 --  Tuple f cof -> f (extract $ mkCofree cof)
 --  where
