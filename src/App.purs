@@ -1,209 +1,128 @@
 module App where
 
 import Prelude
-import Effect.Aff as Aff
-import Effect.Aff.Class (class MonadAff)
-import Effect.Random (randomBool)
-import Effect.Exception (error)
-import Web.Event.Event as E
-import Web.HTML (window) as Web
-import Web.HTML.HTMLDocument as HTMLDocument
-import Web.HTML.Window (document) as Web
-import Web.UIEvent.KeyboardEvent (KeyboardEvent)
-import Web.UIEvent.KeyboardEvent as KE
-import Web.UIEvent.KeyboardEvent.EventTypes as KET
-import Halogen.Query.EventSource as ES
-import Data.Maybe (Maybe(..))
-import Halogen as H
-import Halogen.HTML as HH
-import Halogen.HTML.Events as HE
-import Halogen.HTML.Properties as HP
-import Data.Cell (World, JumpPath, emptyWorld, step, modifyTest, gridHamiltonianPath, combine, move, initializeWorld)
+import Data.Maybe (fromJust)
+import Data.Cell (World, JumpPath, step, modifyTest, gridHamiltonianPath, combine, initializeWorld, emptyWorld)
 --import Control.Comonad.Cofree.Memoized as M
 import Control.Comonad.Cofree.Testing as M
-import Control.Monad.Rec.Class (tailRecM, Step(..), forever)
-import Data.Array (mapWithIndex, cons)
-import Data.Tuple (snd)
-import Data.Time.Duration (Milliseconds(..))
+import Data.Array ((..), index)
+import SDOM (SDOM, text, withAsync, mapChannel)
+import SDOM.Elements as E
+import SDOM.Attributes as A
+import SDOM.Events as Events
+import Data.Either (Either(..))
+import Data.Profunctor (dimap)
+import Partial.Unsafe (unsafePartial)
+import Data.Function.Memoize (memoize)
+import Record (insert)
+import Data.Symbol (SProxy(..))
+import Prim.Row as Row
+import FRP.Event (Event)
+import FRP.Event.Time (interval)
+
+import Unsafe.Coerce (unsafeCoerce)
 
 type State
   = { world :: World Boolean
-    , viewSize :: Int
-    , gridPath :: JumpPath Unit
-    , animate :: Boolean
-    , autoStep :: Maybe H.SubscriptionId
+    , autoStep :: Boolean
     }
 
 data Action
   = Init
-  | ZoomIn
-  | ZoomOut
   | Step
-  | HandleKey H.SubscriptionId KeyboardEvent
   | Toggle Int Int
-  | ToggleAnimation
-  | ToggleAutoStep
 
-initialWorld :: World Boolean
-initialWorld = emptyWorld 32
+size :: Int
+size = 32
 
-component :: forall q i o m. MonadAff m => H.Component HH.HTML q i o m
-component =
-  H.mkComponent
-    { initialState:
-        \_ ->
-          { world: initialWorld
-          , viewSize: 32
-          , gridPath: gridHamiltonianPath 32 32
-          , animate: true
-          , autoStep: Nothing
-          }
-    , render
-    , eval:
-        H.mkEval
-          $ H.defaultEval
-              { handleAction = handleAction
-              , initialize = Just Init
-              }
+-- BUG if grid path is smaller than map size, there's a failed pattern match
+gridPath :: JumpPath Unit
+gridPath = gridHamiltonianPath size size
+
+-- Apply the combine and path ahead of time so memoization succeeds
+collectPath :: forall a. World a -> Array a
+collectPath = M.collect combine gridPath
+
+indexes :: Array Int
+indexes = 0 .. (size * size - 1)
+
+initializeState :: Array Boolean -> State
+initializeState rands =
+  { world: initializeWorld rands size
+  , autoStep: true
+  }
+
+-- I think this could be optimised to not have to walk around
+-- now that we know the underlying thing can be referenced by index
+-- as in, can I make M.collect combine gridPath efficient?
+compWalk :: forall a. World a -> Array a
+compWalk = memoize (\world -> collectPath world)
+
+unpack ::
+  forall a r.
+  Row.Lacks "walk" r =>
+  { world :: World a | r } ->
+  { walk :: Array a
+  , world :: World a
+  | r
+  }
+unpack r = insert (SProxy :: _ "walk") (compWalk r.world) r
+
+cell ::
+  forall channel context r.
+  Int ->
+  SDOM channel context
+    { walk :: Array Boolean
+    , world :: World Boolean
+    | r
     }
+    { walk :: Array Boolean
+    , world :: World Boolean
+    | r
+    }
+cell i =
+  E.div
+    [ A.className \_ _ -> "cell-container" ]
+    [ Events.click \_ _ -> pure \r -> r { world = modifyTest x y not r.world } ]
+    [ E.div
+        [ A.className \_ { walk } -> if unsafePartial (fromJust (index walk i)) then "cell cell-true" else "cell cell-false" ]
+        []
+        []
+    ]
+  where
+  x = i `mod` size
 
-render :: forall cs m. State -> H.ComponentHTML Action cs m
-render state =
-  HH.div
-    [ HP.classes [ HH.ClassName "app" ] ]
-    [ HH.text "" -- (showJumpPath gridPath)
-    , HH.div
-        [ HP.classes [ HH.ClassName "app-controls" ] ]
-        [ HH.button
-            [ HE.onClick \_ -> Just Step ]
-            [ HH.text "Step" ]
-        , HH.button
-            [ HE.onClick \_ -> Just ZoomIn ]
-            [ HH.text "+" ]
-        , HH.button
-            [ HE.onClick \_ -> Just ZoomOut ]
-            [ HH.text "-" ]
-        , HH.button
-            [ HE.onClick \_ -> Just ToggleAnimation ]
-            [ HH.text "Toggle Animation" ]
-        , HH.button
-            [ HE.onClick \_ -> Just ToggleAutoStep ]
-            [ HH.text "Toggle Auto Step" ]
-        ]
-    , HH.div
-        [ HP.classes [ HH.ClassName "world" ]
-        , HP.style
-            ( ("grid-template-columns: repeat(" <> show state.viewSize <> ", 5fr);")
-                <> ("grid-template-rows: repeat(" <> show state.viewSize <> ", 5fr);")
-            )
-        ]
-        ( mapWithIndex
-            ( \i a ->
-                let
-                  x = i `mod` state.viewSize
+  y = i `div` size
 
-                  y = i `div` state.viewSize
-                in
-                  HH.div
-                    [ HE.onClick \_ -> Just (Toggle x y)
-                    , HP.classes [ HH.ClassName "cell-container" ]
-                    ]
-                    [ HH.div
-                        [ HP.classes
-                            ( [ HH.ClassName "cell"
-                              , HH.ClassName
-                                  if a then "cell-true" else "cell-false"
-                              ]
-                                <> if state.animate then [ HH.ClassName "cell-animated" ] else []
-                            )
-                        ]
-                        []
-                    ]
-            )
-            (M.collect combine state.gridPath state.world)
-        )
+component' ::
+  forall context.
+  SDOM Boolean context State State
+component' =
+  E.div
+    [ A.className \_ _ -> "app" ]
+    []
+    [ E.div
+        [ A.className \_ _ -> "app-controls" ]
+        []
+        [ E.button
+            []
+            [ Events.click \_ _ -> pure \st -> st { world = step st.world } ]
+            [ text \_ _ -> "Step" ]
+        , E.input
+            [ A.type_ \_ _ -> "checkbox" ]
+            [ Events.change \_ e -> Left $ (unsafeCoerce e).target.checked ] --pure \st -> st { autoStep = not st.autoStep } ]
+            [] -- [ text \_ _ -> "Toggle Auto Step" ]
+        ]
+    , dimap (unpack) (\{ world, autoStep } -> { world, autoStep })
+        $ E.div
+            [ A.className \_ _ -> "world" ]
+            []
+            (cell <$> indexes)
     ]
 
-runAutoStep :: forall m. MonadAff m => ES.EventSource m Action
-runAutoStep =
-  ES.affEventSource \emitter -> do
-    fiber <-
-      Aff.forkAff
-        $ forever do
-            Aff.delay $ Milliseconds 250.0
-            ES.emit emitter Step
-    pure
-      $ ES.Finalizer do
-          Aff.killFiber (error "Event source finalized") fiber
-
-handleAction :: forall cs o m. MonadAff m => Action -> H.HalogenM State Action cs o m Unit
-handleAction = case _ of
-  Init -> do
-    window <- H.liftEffect Web.window
-    document <- H.liftEffect $ Web.document window
-    H.subscribe' \sid ->
-      ES.eventListenerEventSource
-        KET.keyup
-        (HTMLDocument.toEventTarget document)
-        (map (HandleKey sid) <<< KE.fromEvent)
-    let
-      go { n: 0, xs } = pure $ Done xs -- $ Done xs
-
-      go { n, xs } = do
-        x <- randomBool
-        pure $ Loop { n: n - 1, xs: cons x xs }
-    rands <- H.liftEffect $ tailRecM go { n: 32 * 32, xs: [ false ] }
-    H.modify_ \st -> st { world = initializeWorld rands 32 }
-    --sId <- H.subscribe runAutoStep
-    --H.modify_ \st -> st { autoStep = Just sId }
-    pure unit
-  ToggleAnimation -> H.modify_ \st@{ animate } -> st { animate = not animate }
-  ToggleAutoStep -> do
-    { autoStep } <- H.get
-    autoStep' <- case autoStep of
-      Just sId -> do
-        H.unsubscribe sId
-        pure Nothing
-      Nothing -> do
-        sId <- H.subscribe runAutoStep
-        pure $ Just sId
-    H.modify_ \st -> st { autoStep = autoStep' }
-  ZoomIn ->
-    H.modify_ \st@{ viewSize } ->
-      let
-        viewSize' = max (viewSize - 1) 3
-      in
-        st { viewSize = viewSize', gridPath = gridHamiltonianPath viewSize' viewSize' }
-  ZoomOut ->
-    H.modify_ \st@{ viewSize } ->
-      let
-        viewSize' = viewSize + 1
-      in
-        st { viewSize = viewSize', gridPath = gridHamiltonianPath viewSize' viewSize' }
-  Toggle x y -> H.modify_ \st@{ world } -> st { world = modifyTest x y not world }
-  Step ->
-    H.modify_ \st@{ world } ->
-      let
-        world' = step world
-      -- forceCofree is necessary for larger size worlds, as lazy chains can
-      -- get too long and cause stack overflows
-      --_ = M.forceCofree world'
-      in
-        st { world = world' }
-  HandleKey sid ev
-    | KE.key ev == "c" -> do
-      H.liftEffect $ E.preventDefault (KE.toEvent ev)
-      H.modify_ (\st -> st { world = initialWorld })
-    | KE.key ev == "ArrowRight" -> do
-      H.liftEffect $ E.preventDefault (KE.toEvent ev)
-      H.modify_ (\st -> st { world = snd $ M.reassociate combine move.east st.world })
-    | KE.key ev == "ArrowLeft" -> do
-      H.liftEffect $ E.preventDefault (KE.toEvent ev)
-      H.modify_ (\st -> st { world = snd $ M.reassociate combine move.west st.world })
-    | KE.key ev == "ArrowUp" -> do
-      H.liftEffect $ E.preventDefault (KE.toEvent ev)
-      H.modify_ (\st -> st { world = snd $ M.reassociate combine move.south st.world })
-    | KE.key ev == "ArrowDown" -> do
-      H.liftEffect $ E.preventDefault (KE.toEvent ev)
-      H.modify_ (\st -> st { world = snd $ M.reassociate combine move.north st.world })
-    | otherwise -> pure unit
+component :: forall channel context. SDOM channel context State State
+component = withAsync (mapChannel (map Right <<< interpreter) component')
+  where
+  interpreter :: Boolean -> Event (State -> State)
+  interpreter true = interval 250 $> \r -> r { autoStep = true, world = step r.world }
+  interpreter false = pure \r -> r { autoStep = false }

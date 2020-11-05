@@ -119,3 +119,14 @@ in  upstream
     , repo = "https://github.com/matthewleon/purescript-dissectable.git"
     , version = "eed3e0c5627eeeb24d8b3771b21163b7defb956f"
     }
+  with sdom =
+    { dependencies =
+        [ "event"
+        , "profunctor"
+        , "refs"
+        , "web-dom"
+        , "web-html"
+        ]
+    , repo = "https://github.com/paf31/purescript-sdom.git"
+    , version = "7782c356b969c8dd98fbb6df08e2a807b0c15387"
+    }

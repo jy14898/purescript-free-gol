@@ -132,20 +132,34 @@ setCell (CoCell a k) (Cell r) =
         }
         a
 
+--neighbours8 :: forall a. World a -> Array a
+--neighbours8 = \root -> dirs <#> \dir -> explore' dir root
+--  where
+--  dirs =
+--    [ move.north
+--    , move.east
+--    , move.south
+--    , move.west
+--    , move.north <* move.east
+--    , move.south <* move.east
+--    , move.south <* move.west
+--    , move.north <* move.west
+--    ]
+--      <#> (identity <$ _)
+
 neighbours8 :: forall a. World a -> Array a
-neighbours8 = \root -> dirs <#> \dir -> explore' dir root
+neighbours8 = flap dirs
   where
   dirs =
-    [ move.north
-    , move.east
-    , move.south
-    , move.west
-    , move.north <* move.east
-    , move.south <* move.east
-    , move.south <* move.west
-    , move.north <* move.west
+    [ explore' (identity <$ move.north)
+    , explore' (identity <$ move.east)
+    , explore' (identity <$ move.south)
+    , explore' (identity <$ move.west)
+    , explore' (identity <$ move.north <* move.east)
+    , explore' (identity <$ move.south <* move.east)
+    , explore' (identity <$ move.south <* move.west)
+    , explore' (identity <$ move.north <* move.west)
     ]
-      <#> (identity <$ _)
 
 count :: Array Boolean -> Int
 count = foldl toInt 0
