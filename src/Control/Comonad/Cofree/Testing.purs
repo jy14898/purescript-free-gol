@@ -3,7 +3,7 @@ module Control.Comonad.Cofree.Testing where
 import Prelude
 import Control.Monad.Free (Free, runFreeM)
 import Control.Comonad (class Extend, class Comonad, extract)
-import Data.Tuple (Tuple(..), fst, snd)
+import Data.Tuple (Tuple(..))
 import Control.Monad.State (State, runState, state)
 import Control.Monad.Rec.Class (tailRecM, Step(..))
 -- import Data.Function.Memoize (memoize, class Tabulate)
@@ -14,7 +14,7 @@ import Control.Monad.ST.Ref as STR
 import Control.Monad.ST as ST
 import Data.Map as M
 import Data.Maybe (Maybe(..), fromJust)
-import Data.Traversable (traverse, sequence, class Traversable)
+import Data.Traversable (class Traversable, for)
 import Partial.Unsafe (unsafePartial)
 import Undefined (undefined)
 
@@ -51,34 +51,47 @@ tail = go <<< unCofree
 buildCofree :: forall s f a. Ord s => Traversable f => (s -> Tuple a (f s)) -> s -> Cofree f a
 buildCofree f is = ST.run (buildCofreeST f is)
 
+-- | While this is stack safe, the order in which indexes are assigned does not
+-- | line up well with GOL grid
 buildCofreeST :: forall r s f a. Ord s => Traversable f => (s -> Tuple a (f s)) -> s -> ST.ST r (Cofree f a)
 buildCofreeST f initialSeed = do
   xs <- STA.empty
+  _ <- STA.push undefined xs
   ys <- STA.empty
-  indexMapRef <- STR.new M.empty
+  _ <- STA.push undefined ys
+  indexMapRef <- STR.new (M.singleton initialSeed 0)
+  stack <- STA.empty
+  _ <- STA.push initialSeed stack
   let
-    -- Replace with Dissectable traverseP eventually
-    -- For now, convert the functor to a list and push to a stack
-    -- then 'after' we can map a lookup with guaranteed success
-    go =  {-tailRecM-} \seed -> do
-      indexMap <- STR.read indexMapRef
-      case M.lookup seed indexMap of
-        Just index -> pure ( {-Done-}index)
-        Nothing -> do
-          let
-            index = M.size indexMap
-          _ <- STR.write (M.insert seed index indexMap) indexMapRef
-          _ <- STA.push (undefined) xs
-          _ <- STA.push (undefined) ys
-          --let (Tuple value children) = f seed
-          --let asdf = children -- functor containing next seeds f s
-          --let (asdf2 :: ?help) = traverse (\a -> [a]) children
-          v <- sequence (traverse go <$> f seed)
-          _ <- STA.poke index (fst v) xs
-          _ <- STA.poke index (snd v) ys
-          -- ?
-          pure ( {-Done-}index)
-  _ <- go initialSeed
+    go =
+      tailRecM \_ -> do
+        mSeed <- STA.pop stack
+        case mSeed of
+          Nothing -> pure (Done unit)
+          Just seed -> do
+            let
+              (Tuple x children) = f seed
+            y <-
+              for children \child -> do
+                indexMap <- STR.read indexMapRef
+                case M.lookup child indexMap of
+                  Just index -> pure index
+                  Nothing -> do
+                    let
+                      index = M.size indexMap
+                    _ <- STR.write (M.insert child index indexMap) indexMapRef
+                    _ <- STA.push undefined xs
+                    _ <- STA.push undefined ys
+                    _ <- STA.push child stack
+                    pure index
+            indexMap <- STR.read indexMapRef
+            let
+              index = unsafePartial (fromJust (M.lookup seed indexMap))
+            _ <- STA.poke index x xs
+            _ <- STA.poke index y ys
+            pure (Loop unit)
+
+  _ <- go unit
   xs' <- STA.freeze xs
   ys' <- STA.freeze ys
   pure $ mkCofree { index: 0, xs: xs', ys: ys' }
