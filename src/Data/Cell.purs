@@ -1,7 +1,8 @@
 module Data.Cell where
 
 import Prelude
-import Control.Comonad.Cofree.Memoized (Cofree, buildCofree, explore, head, modify') as M
+--import Control.Comonad.Cofree.Memoized (Cofree, buildCofree, explore, head, modify') as M
+import Control.Comonad.Cofree.Testing (Cofree, buildCofree, explore, head, modify') as M
 import Control.Monad.Free (Free, liftF, runFree, hoistFree)
 import Control.Monad.Rec.Class (tailRecM, Step(..))
 import Control.Comonad (extend)
@@ -9,6 +10,7 @@ import Data.Tuple.Nested ((/\))
 import Data.Variant (SProxy(..), Variant, inj, match)
 import Data.Newtype (class Newtype, unwrap)
 import Data.Foldable (class Foldable, foldl, foldMapDefaultR)
+import Data.Traversable (class Traversable, sequenceDefault)
 
 -- | The two functors, Cell and CoCell, defined in this file are used for 
 -- | representing the game grid as a Cofree monad and for representing walks
@@ -30,6 +32,17 @@ instance foldableCell :: Foldable Cell where
   foldr f b (Cell r) = f r.north $ f r.east $ f r.south $ f r.west b
   foldl f b (Cell r) = f (f (f (f b r.north) r.east) r.south) r.west
   foldMap = foldMapDefaultR
+
+instance traversableCell :: Traversable Cell where
+  -- pure :: a -> m a
+  -- apply :: m (a -> b) -> m a -> m b
+  -- map :: (a -> b) -> m a -> m b
+  traverse f c =
+    let
+      (Cell n) = f <$> c
+    in
+      Cell <$> ({ north: _, south: _, east: _, west: _ } <$> n.north <*> n.south <*> n.east <*> n.west)
+  sequence = sequenceDefault
 
 data CoCell a
   = CoCell (Variant (Directions Unit)) a

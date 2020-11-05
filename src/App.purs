@@ -19,7 +19,8 @@ import Halogen.HTML as HH
 import Halogen.HTML.Events as HE
 import Halogen.HTML.Properties as HP
 import Data.Cell (World, JumpPath, emptyWorld, step, modifyTest, gridHamiltonianPath, combine, move, initializeWorld)
-import Control.Comonad.Cofree.Memoized as M
+--import Control.Comonad.Cofree.Memoized as M
+import Control.Comonad.Cofree.Testing as M
 import Control.Monad.Rec.Class (tailRecM, Step(..), forever)
 import Data.Array (mapWithIndex, cons)
 import Data.Tuple (snd)
@@ -44,7 +45,7 @@ data Action
   | ToggleAutoStep
 
 initialWorld :: World Boolean
-initialWorld = emptyWorld 32
+initialWorld = emptyWorld 64
 
 component :: forall q i o m. MonadAff m => H.Component HH.HTML q i o m
 component =
@@ -151,10 +152,10 @@ handleAction = case _ of
       go { n, xs } = do
         x <- randomBool
         pure $ Loop { n: n - 1, xs: cons x xs }
-    rands <- H.liftEffect $ tailRecM go { n: 32 * 32, xs: [ false ] }
-    H.modify_ \st -> st { world = initializeWorld rands 32 }
-    sId <- H.subscribe runAutoStep
-    H.modify_ \st -> st { autoStep = Just sId }
+    rands <- H.liftEffect $ tailRecM go { n: 64 * 64, xs: [ false ] }
+    H.modify_ \st -> st { world = initializeWorld rands 64 }
+    --sId <- H.subscribe runAutoStep
+    --H.modify_ \st -> st { autoStep = Just sId }
     pure unit
   ToggleAnimation -> H.modify_ \st@{ animate } -> st { animate = not animate }
   ToggleAutoStep -> do
